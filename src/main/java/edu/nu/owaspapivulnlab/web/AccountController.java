@@ -7,10 +7,16 @@ import edu.nu.owaspapivulnlab.model.Account;
 import edu.nu.owaspapivulnlab.model.AppUser;
 import edu.nu.owaspapivulnlab.repo.AccountRepository;
 import edu.nu.owaspapivulnlab.repo.AppUserRepository;
+import edu.nu.owaspapivulnlab.service.UserContextService;
+import edu.nu.owaspapivulnlab.web.dto.AccountResponseDto;
+import edu.nu.owaspapivulnlab.annotation.RateLimited;
+import edu.nu.owaspapivulnlab.service.RateLimitService;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/accounts")
@@ -18,24 +24,62 @@ public class AccountController {
 
     private final AccountRepository accounts;
     private final AppUserRepository users;
+    private final UserContextService userContextService;
 
-    public AccountController(AccountRepository accounts, AppUserRepository users) {
+    public AccountController(AccountRepository accounts, AppUserRepository users, UserContextService userContextService) {
         this.accounts = accounts;
         this.users = users;
+        this.userContextService = userContextService;
     }
 
-    // VULNERABILITY(API1: BOLA) - no check whether account belongs to caller
     @GetMapping("/{id}/balance")
-    public Double balance(@PathVariable Long id) {
-        Account a = accounts.findById(id).orElseThrow(() -> new RuntimeException("Account not found"));
-        return a.getBalance();
+    public ResponseEntity<?> balance(@PathVariable Long id) {
+        Account a = accounts.findById(id).orElse(null);
+        if (a == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        // SECURITY FIX: Enforce ownership with null safety
+        Long currentUserId = userContextService.getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Not authenticated"));
+        }
+        
+        if (!a.getOwnerUserId().equals(currentUserId)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
+        }
+        
+        return ResponseEntity.ok(a.getBalance());
     }
 
-    // VULNERABILITY(API4: Unrestricted Resource Consumption) - no rate limiting on transfer
-    // VULNERABILITY(API5/1): no authorization check on owner
+    @RateLimited(RateLimitService.RateLimitType.TRANSFER)
     @PostMapping("/{id}/transfer")
     public ResponseEntity<?> transfer(@PathVariable Long id, @RequestParam Double amount) {
-        Account a = accounts.findById(id).orElseThrow(() -> new RuntimeException("Account not found"));
+        Account a = accounts.findById(id).orElse(null);
+        if (a == null) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        // SECURITY FIX: Enforce ownership with null safety
+        Long currentUserId = userContextService.getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Not authenticated"));
+        }
+        
+        if (!a.getOwnerUserId().equals(currentUserId)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
+        }
+        
+        // Input validation: reject negative or zero amounts
+        if (amount <= 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Amount must be positive"));
+        }
+        
+        // Check sufficient balance
+        if (a.getBalance() < amount) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Insufficient balance"));
+        }
+        
         a.setBalance(a.getBalance() - amount);
         accounts.save(a);
         Map<String, Object> response = new HashMap<>();
@@ -44,10 +88,18 @@ public class AccountController {
         return ResponseEntity.ok(response);
     }
 
-    // Safe-ish helper to view my accounts (still leaks more than needed)
     @GetMapping("/mine")
-    public Object mine(Authentication auth) {
-        AppUser me = users.findByUsername(auth != null ? auth.getName() : "anonymous").orElse(null);
-        return me == null ? Collections.emptyList() : accounts.findByOwnerUserId(me.getId());
+    public ResponseEntity<?> mine() {
+        Long currentUserId = userContextService.getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Not authenticated"));
+        }
+        
+        List<Account> userAccounts = accounts.findByOwnerUserId(currentUserId);
+        List<AccountResponseDto> accountDtos = userAccounts.stream()
+                .map(AccountResponseDto::from)
+                .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(accountDtos);
     }
 }
