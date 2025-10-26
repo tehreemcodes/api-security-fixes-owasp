@@ -19,12 +19,19 @@ import io.jsonwebtoken.*;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Date;
 
 @Configuration
 public class SecurityConfig {
 
     @Value("${app.jwt.secret}")
     private String secret;
+
+    @Value("${app.jwt.issuer:owasp-api-lab}")
+    private String issuer;
+
+    @Value("${app.jwt.audience:api-users}")
+    private String audience;
 
     // VULNERABILITY(API7 Security Misconfiguration): overly permissive CORS/CSRF and antMatchers order
     @Bean
@@ -33,23 +40,29 @@ public class SecurityConfig {
         http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
         http.authorizeHttpRequests(reg -> reg
-                .requestMatchers("/api/auth/**", "/h2-console/**").permitAll()
-                // VULNERABILITY: broad permitAll on GET allows data scraping (API1/2 depending on context)
-                .requestMatchers(HttpMethod.GET, "/api/**").permitAll()
+                .requestMatchers("/api/auth/login", "/api/auth/signup", "/h2-console/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/**").authenticated()
                 .anyRequest().authenticated()
         );
 
         http.headers(h -> h.frameOptions(f -> f.disable())); // allow H2 console
 
-        http.addFilterBefore(new JwtFilter(secret), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(new JwtFilter(secret, issuer, audience), org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
-    // Minimal JWT filter (VULNERABILITY: weak validation - no audience, issuer checks; long TTL)
+    // Improved JWT filter with proper error handling
     static class JwtFilter extends OncePerRequestFilter {
         private final String secret;
-        JwtFilter(String secret) { this.secret = secret; }
+        private final String issuer;
+        private final String audience;
+        
+        JwtFilter(String secret, String issuer, String audience) { 
+            this.secret = secret; 
+            this.issuer = issuer;
+            this.audience = audience;
+        }
 
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -58,15 +71,29 @@ public class SecurityConfig {
             if (auth != null && auth.startsWith("Bearer ")) {
                 String token = auth.substring(7);
                 try {
-                    Claims c = Jwts.parserBuilder().setSigningKey(secret.getBytes()).build()
-                            .parseClaimsJws(token).getBody();
+                    Claims c = Jwts.parserBuilder()
+                            .setSigningKey(secret.getBytes())
+                            .requireIssuer(issuer)
+                            .requireAudience(audience)
+                            .build()
+                            .parseClaimsJws(token)
+                            .getBody();
+                    
+                    // Validate token is not expired
+                    if (c.getExpiration().before(new Date())) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                        return;
+                    }
+                    
                     String user = c.getSubject();
                     String role = (String) c.get("role");
                     UsernamePasswordAuthenticationToken authn = new UsernamePasswordAuthenticationToken(user, null,
                             role != null ? Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role)) : Collections.emptyList());
                     SecurityContextHolder.getContext().setAuthentication(authn);
-                } catch (JwtException e) {
-                    // VULNERABILITY: swallow errors; continue as anonymous (API7)
+                } catch (JwtException | IllegalArgumentException e) {
+                    // Properly handle JWT errors - return 401
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
                 }
             }
             chain.doFilter(request, response);
