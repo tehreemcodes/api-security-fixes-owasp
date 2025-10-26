@@ -1,3 +1,18 @@
+/*
+ * SECURITY FIX #5: Broken Function Level Authorization
+ * 
+ * VULNERABILITY: No centralized authorization checks for different user roles.
+ * Regular users could access admin functions.
+ * 
+ * FIX IMPLEMENTED:
+ * - Created custom security annotations (@RequireRole, @RequireAuth)
+ * - Implemented AspectJ aspects to enforce authorization before method execution
+ * - Centralized authorization logic for maintainability
+ * - Automatic rejection of unauthorized access attempts
+ * 
+ * IMPACT: Ensures only authorized users can access privileged functions
+ */
+
 package edu.nu.owaspapivulnlab.aspect;
 
 import edu.nu.owaspapivulnlab.annotation.RateLimited;

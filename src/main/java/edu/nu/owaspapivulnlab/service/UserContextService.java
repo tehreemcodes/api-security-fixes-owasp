@@ -1,3 +1,19 @@
+/*
+ * SECURITY FIX #1 & #5: Broken Object Level Authorization (BOLA) & 
+ * Broken Function Level Authorization (BFLA)
+ * 
+ * VULNERABILITY: Users could access or modify resources belonging to other users
+ * by manipulating object IDs in API requests. No proper authorization checks.
+ * 
+ * FIX IMPLEMENTED:
+ * - Added UserContextService to maintain authenticated user context
+ * - Validates user ownership before allowing access to resources
+ * - Implements role-based access control (RBAC)
+ * - Checks permissions at both object and function levels
+ * 
+ * IMPACT: Ensures users can only access their own data and authorized functions
+ */
+
 package edu.nu.owaspapivulnlab.service;
 
 import edu.nu.owaspapivulnlab.model.AppUser;

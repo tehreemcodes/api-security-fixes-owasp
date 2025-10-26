@@ -1,3 +1,18 @@
+/*
+ * SECURITY FIX #2: Broken Authentication
+ * 
+ * VULNERABILITY: Passwords were stored in plain text or with weak hashing,
+ * making them vulnerable if the database was compromised.
+ * 
+ * FIX IMPLEMENTED:
+ * - Added PasswordService using BCrypt for secure password hashing
+ * - Implemented password strength validation (minimum length, complexity)
+ * - Uses BCrypt with salt for one-way hashing (cannot be reversed)
+ * - Password verification without exposing the hash
+ * 
+ * IMPACT: Protects user credentials even if database is compromised
+ */
+
 package edu.nu.owaspapivulnlab.service;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;

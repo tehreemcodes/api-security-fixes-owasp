@@ -1,3 +1,18 @@
+/*
+ * SECURITY FIX #7: Security Misconfiguration
+ * 
+ * VULNERABILITY: Debug endpoints exposed sensitive information like environment
+ * variables, configuration details, and system information in production.
+ * 
+ * FIX IMPLEMENTED:
+ * - Disabled debug endpoints in production environment
+ * - Added authentication requirement for debug endpoints
+ * - Removed exposure of sensitive configuration data
+ * - Limited debug information to non-sensitive data only
+ * 
+ * IMPACT: Prevents information disclosure that could aid attackers
+ */
+
 package edu.nu.owaspapivulnlab.web;
 
 import edu.nu.owaspapivulnlab.service.UserContextService;
